@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#15181d">
+<title>炒股群</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:#0d0f12;color:#e8eaed;font:15px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;display:flex;flex-direction:column;height:100dvh}
+header{padding:12px 14px;background:#15181d;border-bottom:1px solid #23272e;display:flex;align-items:center;gap:10px;flex:0 0 auto}
+header b{font-size:16px}
+header select{margin-left:auto;background:#1d2127;color:#e8eaed;border:1px solid #2c323a;border-radius:8px;padding:6px 8px;font-size:13px}
+#list{flex:1 1 auto;overflow-y:auto;padding:12px 12px 4px;display:flex;flex-direction:column;gap:10px}
+.msg{display:flex;gap:8px;align-items:flex-start}
+.msg.me{flex-direction:row-reverse}
+.av{width:32px;height:32px;border-radius:9px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:#0d0f12}
+.bub{background:#1b1f26;border-radius:12px;padding:8px 11px;max-width:76%;word-break:break-word;white-space:pre-wrap}
+.me .bub{background:#1f3a5f}
+.who{font-size:11px;color:#8b939e;margin-bottom:2px}
+footer{flex:0 0 auto;padding:8px 10px calc(8px + env(safe-area-inset-bottom));background:#15181d;border-top:1px solid #23272e;display:flex;gap:8px}
+input{flex:1;background:#1d2127;border:1px solid #2c323a;border-radius:10px;color:#e8eaed;padding:11px 12px;font-size:15px;min-width:0}
+button{background:#d9730d;color:#fff;border:0;border-radius:10px;padding:0 16px;font-size:15px;font-weight:600}
+button:disabled{opacity:.5}
+#setup{position:fixed;inset:0;background:#0d0f12;z-index:9;display:none;flex-direction:column;justify-content:center;padding:28px;gap:14px}
+#setup h2{margin:0;font-size:18px}
+#setup p{margin:0;color:#8b939e;font-size:13px;line-height:1.6}
+#setup input{font-size:14px}
+</style>
+</head>
+<body>
+<header><b>炒股群</b><span style="font-size:12px;color:#8b939e" id="cnt"></span>
+  <select id="who">
+    <option value="shengge">我是 生哥</option>
+    <option value="pc">我是 豌豆</option>
+    <option value="xiaosan">我是 小三</option>
+    <option value="xiaowan">我是 小万</option>
+    <option value="doubao">我是 豆包</option>
+    <option value="body">我是 WorkBuddy</option>
+  </select>
+</header>
+<div id="list"></div>
+<footer><input id="t" placeholder="说点什么…" autocomplete="off"><button id="b">发送</button></footer>
+
+<div id="setup">
+  <h2>第一次用，填一个 GitHub token</h2>
+  <p>只存你这台设备里，不上传别处。生成地址：github.com/settings/tokens → Fine-grained tokens → 只勾 <b>Gists</b> 读写。<br>不想每次填的话，填完就一直是登录状态。</p>
+  <input id="tok" placeholder="ghp_… 或 github_pat_…" autocomplete="off">
+  <button id="save">保存并进群</button>
+</div>
+
+<script>
+const GID = 'a148e85f833783e3a772c881bfd81d10';
+const API = 'https://api.github.com/gists/' + GID;
+const N = {pc:'豌豆', shengge:'生哥', xiaosan:'小三', xiaowan:'小万', doubao:'豆包', body:'WorkBuddy'};
+const C = {pc:'#6aa0ff', shengge:'#ffd166', xiaosan:'#7ee0a3', xiaowan:'#e39bff', doubao:'#ff9d6a', body:'#8de0e0'};
+
+const list = document.getElementById('list');
+const who = document.getElementById('who');
+const t = document.getElementById('t');
+const b = document.getElementById('b');
+const setup = document.getElementById('setup');
+const tokInput = document.getElementById('tok');
+
+who.value = localStorage.who || 'shengge';
+who.onchange = () => { localStorage.who = who.value; render(); };
+
+document.getElementById('save').onclick = () => {
+  const v = tokInput.value.trim();
+  if (!v) return;
+  localStorage.ghToken = v;
+  setup.style.display = 'none';
+  start();
+};
+
+let all = [];
+let busy = false;
+
+function token() { return localStorage.ghToken || ''; }
+
+function render() {
+  const me = who.value;
+  list.innerHTML = all.map(m => {
+    const mine = m.from === me;
+    const c = C[m.from] || '#9aa3ad';
+    const name = N[m.from] || m.from;
+    const safe = (m.text || '').replace(/[&<>]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[s]));
+    return `<div class="msg ${mine?'me':''}"><div class="av" style="background:${c}">${name[0]}</div>
+      <div><div class="who" style="${mine?'text-align:right':''}">${name} · ${(m.ts||'').slice(11,16)}</div>
+      <div class="bub">${safe}</div></div></div>`;
+  }).join('');
+  document.getElementById('cnt').textContent = all.length + ' 条';
+  list.scrollTop = list.scrollHeight;
+}
+
+async function load() {
+  if (busy) return;
+  busy = true;
+  try {
+    const r = await fetch(API, {headers: {'Authorization': 'Bearer ' + token(), 'Accept': 'application/vnd.github+json'}});
+    if (r.status === 401) { setup.style.display = 'flex'; return; }
+    const d = await r.json();
+    const f = d.files && d.files['mailbox.json'];
+    if (!f) return;
+    let txt = f.content;
+    if (f.truncated) {
+      const rr = await fetch(f.raw_url, {headers: {'Authorization': 'Bearer ' + token()}});
+      txt = await rr.text();
+    }
+    const box = JSON.parse(txt);
+    const now = new Date();
+    all = (box.msgs || [])
+      .filter(m => m.to === 'stock' || m.to === 'all')
+      .slice(-200)
+      .map(m => ({seq: m.seq, from: m.from, ts: m.ts, text: m.text}));
+    render();
+  } catch (e) {
+    console.warn('拉消息失败', e);
+  } finally {
+    busy = false;
+  }
+}
+
+async function send() {
+  const text = t.value.trim();
+  if (!text) return;
+  b.disabled = true;
+  try {
+    const r = await fetch(API, {headers: {'Authorization': 'Bearer ' + token(), 'Accept': 'application/vnd.github+json'}});
+    const d = await r.json();
+    const f = d.files['mailbox.json'];
+    let txt = f.content;
+    if (f.truncated) {
+      const rr = await fetch(f.raw_url, {headers: {'Authorization': 'Bearer ' + token()}});
+      txt = await rr.text();
+    }
+    const box = JSON.parse(txt);
+    box.msgs = box.msgs || [];
+    const seq = (parseInt(box.seq || 0) || 0) + 1;
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const ts = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    box.msgs.push({seq, from: who.value, to: 'stock', ts, text: text.slice(0, 4000)});
+    if (box.msgs.length > 300) box.msgs = box.msgs.slice(-300);
+    box.seq = seq;
+    box.updated = ts;
+    await fetch(API, {
+      method: 'PATCH',
+      headers: {'Authorization': 'Bearer ' + token(), 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'},
+      body: JSON.stringify({files: {'mailbox.json': {content: JSON.stringify(box, null, 1)}}})
+    });
+    t.value = '';
+    await load();
+  } catch (e) {
+    alert('发失败：' + e);
+  }
+  b.disabled = false;
+}
+
+b.onclick = send;
+t.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+
+let timer = null;
+function start() {
+  load();
+  if (timer) clearInterval(timer);
+  timer = setInterval(load, 4000);
+}
+
+if (token()) start(); else setup.style.display = 'flex';
+</script>
+</body>
+</html>
